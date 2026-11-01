@@ -1,0 +1,33 @@
+#view-answers .answer-tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:18px 0}
+#view-answers input[type=search]{min-width:180px;flex:1}
+#view-answers select,#view-answers input[type=search]{padding:9px 12px;border:1px solid var(--line,#ddd);border-radius:7px;background:white;color:var(--navy,#24384d);font:inherit}
+#view-answers .answer-grid{display:grid;grid-template-columns:minmax(270px,.9fr) minmax(340px,1.6fr);gap:20px;align-items:start}
+#view-answers .answer-stats{display:flex;gap:9px;flex-wrap:wrap;margin:16px 0}
+#view-answers .answer-stat{background:white;padding:10px 15px;border:1px solid var(--line,#ddd);border-radius:8px;font-size:13px}
+#view-answers .answer-stat b{font-size:20px;margin-left:8px;color:var(--navy,#24384d)}
+#view-answers .answer-list{display:grid;gap:8px;max-height:76vh;overflow:auto}
+#view-answers .answer-row{display:flex;gap:10px;border:1px solid var(--line,#ddd);border-radius:8px;background:white;padding:14px;align-items:flex-start}
+#view-answers .answer-row.selected{border-color:var(--accent,#57806f);box-shadow:0 0 0 1px var(--accent,#57806f)}
+#view-answers .answer-open{flex:1;min-width:0;text-align:left;border:0;background:transparent;padding:0;color:inherit;font:inherit;cursor:pointer}
+#view-answers .answer-title{display:block;font-weight:600;line-height:1.55;margin-bottom:6px}
+#view-answers .answer-meta{display:block;color:var(--muted,#737b83);font-size:12px;line-height:1.7}
+#view-answers .answer-state{font-size:12px;display:inline-block;padding:2px 6px;background:#edf3f0;color:#356248;border-radius:4px;margin-top:6px}
+#view-answers .answer-state.error,#view-answers .answer-state.need_login{background:#fff0ec;color:#9e4a30}
+#view-answers .answer-state.closed,#view-answers .answer-state.partial{background:#fff6e6;color:#8d6728}
+#view-answers .answer-detail{min-height:280px;overflow-wrap:anywhere}
+#view-answers .answer-detail h2{line-height:1.6;margin:0 0 10px}
+#view-answers .answer-detail-actions{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
+#view-answers .answer-history{background:#fff6e6;color:#795822;padding:10px 12px;border-radius:6px;font-size:13px;margin:12px 0;line-height:1.7}
+#view-answers .answer-question{border-top:1px solid var(--line,#ddd);padding:16px 0}
+#view-answers .answer-question h3{font-size:14px;font-weight:600;line-height:1.7;margin:0 0 10px}
+#view-answers .answer-option{font-size:13px;line-height:1.7;padding:5px 9px;border-radius:4px;white-space:pre-wrap}
+#view-answers .answer-option.correct{background:#edf6ef;color:#2f6845}
+#view-answers .answer-option b{margin-right:7px}
+#view-answers .answer-value{margin-top:10px;font-size:13px;font-weight:600;color:var(--accent,#356248)}
+#view-answers .answer-empty{padding:28px 16px;text-align:center;color:var(--muted,#737b83);font-size:14px;line-height:1.8}
+#view-answers #answerStatus{font-size:13px;line-height:1.8;min-height:24px;color:var(--muted,#737b83)}
+#view-answers .answer-coverage{font-size:12px;color:var(--muted,#737b83);line-height:1.7}
+@media(max-width:850px){#view-answers .answer-grid{grid-template-columns:1fr}#view-answers .answer-list{max-height:360px}#view-answers .answer-tools>*{max-width:100%}}
+#view-answers .answer-result{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+#view-answers .answer-result:empty{display:none}
+#view-answers .answer-result ul{color:#a34d10;padding-left:20px}

@@ -1,0 +1,3 @@
+# 只需要两个第三方包：扫码会话靠标准库 urllib，浏览器只给智慧树用
+playwright>=1.49
+qrcode[pil]>=7.4

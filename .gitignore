@@ -1,0 +1,46 @@
+# 仓库根目录只收录项目源码、文档和构建入口。
+/*
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/.github/
+!/sync/
+!/启动工作台.bat
+!/答案中心-使用说明.txt
+!/课程工作台.ico
+
+# 个人数据、账号登录态、浏览器资料及运行资源。
+/sync/state/
+/sync/raw/
+/sync/data/
+/sync/edge-profile/
+/sync/chromium-profile/
+/sync/webview/
+/sync/browser/
+/sync/runtime/
+/sync/backups/
+/sync/answers/????????????????????????/
+/sync/*-manifest.json
+/sync/.*
+!/sync/.gitignore
+
+# 缓存、环境配置、备份和发布二进制。
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+*.log
+*.bak
+*.damaged-*
+*.tmp
+*.exe
+*.zip
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.db
+*.sqlite*
