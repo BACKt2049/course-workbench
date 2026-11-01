@@ -1,5 +1,9 @@
 # 课程工作台
 
+> ## 特别致谢：项目早期灵感来源
+>
+> 本项目早期的产品构想、个人信息管理方向和部分交互灵感，来自 [qianhan-app](https://github.com/qianhan-111/qianhan-app)。感谢这个仓库提供的启发。课程工作台在此基础上，结合教务/知到数据抓取、附件整理、答案中心、增量同步和 Agent 协作，发展出面向课程信息搬运场景的独立实现。
+
 面向 Windows 的本地课程工作台，连接天津大学教务和智慧树，集中查看课表、待办、考试、作业附件与平台返回的作业答案。当前程序版本为 **1.3.1**，首个 EXE 发行标签为 **release-v1.0**。
 
 Windows 用户从 [release-v1.0 下载页面](https://github.com/BACKt2049/course-workbench/releases/tag/release-v1.0) 获取 `CourseWorkbench-Windows-x64.exe`，直接运行并选择数据目录，无需执行下面的源码安装步骤。修复范围与验收记录见 [发行说明](docs/releases/release-v1.0.md)。
