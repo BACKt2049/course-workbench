@@ -1,8 +1,10 @@
 # 课程工作台
 
-> ## 特别致谢：项目早期灵感来源
+> ## 来源与致谢
 >
-> 本项目早期的产品构想、校园信息管理方向和部分交互灵感，来自 [qianhan-app](https://github.com/qianhan-111/qianhan-app) 与 [campus-workbench](https://github.com/qianhan-111/campus-workbench)。感谢这两个仓库提供的启发。课程工作台在此基础上，结合教务/知到数据抓取、附件整理、答案中心、增量同步和 Agent 协作，发展出面向课程信息搬运场景的独立实现。
+> 本项目的产品构想、页面结构与界面布局、部分前端代码（`sync/app.html` 的页面骨架、课程与 DDL 弹窗及提示文案）改编自 [qianhan-111/campus-workbench](https://github.com/qianhan-111/campus-workbench)（「今天 · 校园课程工作台」）；早期的个人管理应用思路参考了 [qianhan-111/qianhan-app](https://github.com/qianhan-111/qianhan-app)。感谢原项目提供的产品思路与前端实现。
+>
+> 与原项目不同，本仓库的后端（Python 本地服务、Playwright 登录、教务与知到数据抓取、附件与答案管理、增量同步、Windows 单文件 EXE 打包）为独立实现。
 
 面向 Windows 的本地课程工作台，连接天津大学教务和智慧树，集中查看课表、待办、考试、作业附件与平台返回的作业答案。当前程序版本为 **1.3.1**，首个 EXE 发行标签为 **release-v1.0**。
 
