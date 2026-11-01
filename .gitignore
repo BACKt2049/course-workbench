@@ -3,6 +3,7 @@
 !/.gitignore
 !/.gitattributes
 !/README.md
+!/docs/
 !/.github/
 !/sync/
 !/启动工作台.bat

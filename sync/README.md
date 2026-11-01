@@ -1,10 +1,12 @@
 # 本地同步服务
 
+本文说明现有程序的运行与接口。项目目标、当前缺陷、文件夹与 Agent 协作、增量同步以及版本更新路线见 [开发文档与演进方案](../docs/development-plan.md)。其中 SQLite、任务 API/CLI/MCP 和程序内更新属于待开发能力。
+
 ## 答案中心（2026-10-31）
 
-新版入口为根目录 `课程工作台-答案中心.exe`，旧版 EXE 保留。把新 EXE 与原来的
-`sync-data` 放在同一目录，即可继续读取原有数据；也可用环境变量 `WB_DATA` 指定数据目录。
-启动新版前先退出旧版及其后台服务，避免桌面启动器复用旧实例。
+发行入口为 `课程工作台-答案中心.exe`。1.3.0 首次桌面启动会选择数据目录，之后读取已保存的目录配置；
+也可用环境变量 `WB_DATA` 指定目录。旧数据迁移保留源文件，不要求用户把数据搬到桌面。
+桌面启动器会检查已有实例的版本与资源状态，并在需要接管时先备份。
 源码运行仍使用根目录 `sync-data`，设置 `WB_DATA` 时以该变量为准。
 
 登录智慧树后点“一键拉取”，先保存课表、待办、要求与附件，再更新已发现课程的全部作业答案，
@@ -56,36 +58,38 @@ EXE包含Python、Playwright驱动与Chromium，使用者无需安装Node。
 把「校园课程工作台」从纯离线单文件，升级成能从教务与智慧树拉数据的本地应用。
 使用平台的登录与课程服务，不存密码；指定`--no-lan`时只监听127.0.0.1。
 
-## 首次安装（只需一次）
+## 源码开发环境安装
+
+以下步骤只用于源码运行。已构建的完整 Windows EXE 内置 Python、Playwright 驱动及 Chromium，用户无需另装内核。
 
 ```bat
 python -m pip install -r sync\requirements.txt
 python -m playwright install chromium
 ```
 
-Chromium 约 150MB，只给智慧树用（微信扫码的授权结果只认浏览器上下文）。
-天大走纯 HTTP，不需要浏览器。
+浏览器用于登录和动态页面访问，平台数据获取结合 HTTP 请求与页面解析。
+天津大学使用“融合门户”App 扫码，智慧树使用“知到”App 扫码。
 
 ## 日常使用
 
 双击根目录的 `启动工作台.bat`，或：
 
-```bat
-python sync\cli.py serve            # 起服务并打开浏览器
-python sync\cli.py serve --auto     # 顺带开启每天 08:00 / 20:00 自动刷新
+```powershell
+python sync\cli.py serve --no-lan          # 起本机服务并打开浏览器
+python sync\cli.py serve --no-lan --auto   # 顺带开启每天 08:00 / 20:00 自动刷新
 ```
 
 页面里点「连接」出二维码 → 手机扫码 → 自动拉取。
 
 ## 命令行（不开页面也能用）
 
-```bat
-python sync\cli.py up tju      :: 生成二维码到 sync\state\qr_tju.png，扫完自动拉取
-python sync\cli.py up zhs      :: 同上，会弹一个浏览器窗口
-python sync\cli.py pull all    :: 已有登录态时直接拉
-python sync\cli.py status      :: 登录态、上次拉取、各表条数、最近事件
-python sync\cli.py snapshot    :: 生成只读快照（不含 token，可直接发布）
-python sync\cli.py logout tju  :: 清除登录态
+```powershell
+python sync\cli.py up tju      # 连接天津大学并拉取，使用融合门户 App 扫码
+python sync\cli.py up zhs      # 连接智慧树并拉取，使用知到 App 扫码
+python sync\cli.py pull all    # 已有登录态时直接拉
+python sync\cli.py status      # 登录态、上次拉取、各表条数、最近事件
+python sync\cli.py snapshot    # 生成只读快照，分享前检查课程内容与个人信息
+python sync\cli.py logout tju  # 清除登录态
 ```
 
 ## 数据在哪
@@ -94,7 +98,7 @@ python sync\cli.py logout tju  :: 清除登录态
 | --- | --- | --- |
 | `sync-data/state/` | 登录态（cookie / storage_state）、服务 token | **绝对不行**，等同凭证 |
 | `sync-data/raw/` | 每次拉取的原始 HTML，只留最近 20 份 | 含个人信息，别外发 |
-| `sync-data/data/` | 结构化结果 `latest.json`、快照 HTML | 快照可以发 |
+| `sync-data/data/` | 结构化结果 `latest.json`、快照 HTML | 可能包含个人课程与笔记，分享前检查并脱敏 |
 | `sync-data/answers/` | 各账号的答案缓存 | 含课程内容，按需要选择导出 |
 
 `.gitignore` 已经把前两个目录排除了。
@@ -110,7 +114,7 @@ python sync\cli.py logout tju  :: 清除登录态
 ## 拉不到东西怎么查
 
 1. `python sync\cli.py status` 看最近事件（失败原因都记在 `state/events.log`）
-2. 解析结果是空但有 `unparsed` —— 说明页面结构变了。把 `sync/raw/` 里对应的 HTML 发出来，按真实 DOM 改选择器
+2. 解析结果是空但有 `unparsed` —— 可能是页面结构变化或抓取不完整；在当前数据目录的 `raw/` 中本地检查，需分享时先移除凭证与个人信息
 3. 提示 `need_login` —— 登录态过期（通常 7–30 天），重新扫一次即可，已有数据不受影响
 
 ## 登录态能保持多久
@@ -132,7 +136,7 @@ python sync\cli.py logout tju  :: 清除登录态
 - **智慧树用有头浏览器**：headless 下它渲染很不稳定，还容易撞限流。窗口弹出来是正常的，扫完自动关。想静默跑可以设 `WB_ZHS_HEADLESS=1`，但失败率高。
 - **正方课表解析**是按「8 列表格 + 单元格多行」写的，真实 DOM 若有出入，第一次拉取后需要校准一次。校准前宁可显示「N 条待确认」，也不会写一份空课表覆盖你的数据。
 - **智慧树的数据几乎都在 XHR 里**，只解析 HTML 拿不到作业和进度。所以抓取时会把所有 JSON 响应原样存进 `raw/zhs-api-*.html`，用来按真实结构校准解析器；这些样本不会直接入库。
-- 首次拉取后，把 `sync/raw/` 里对应的文件发出来，解析器就能一次改准。
+- 解析校准应使用本地响应与界面核对，公开问题只附合成或脱敏样例，不直接发送原始抓取文件。
 
 ## 单文件 EXE 与附件管理
 
@@ -159,12 +163,11 @@ python sync\cli.py logout tju  :: 清除登录态
 
 ```powershell
 $env:WB_BROWSER_SOURCE = 'D:\Caches\ms-playwright'
-Copy-Item '校园课程工作台.html' 'sync\app.html' -Force
 python -m PyInstaller --noconfirm --workpath output\build\pyinstaller --distpath output\release sync\课程工作台.spec
 ```
 
-发布 `output/release/课程工作台.exe` 即可，无需旁置 browser 文件夹。
-运行时优先使用 EXE 临时解压目录里的内核；原先的旁置内核布局继续兼容。
+发布 `output/release/课程工作台-答案中心.exe` 即可，无需旁置 browser 文件夹。
+运行时从 EXE 恢复并校验内置资源到稳定的 `runtime` 目录，后续复用，不长期依赖临时解压目录。
 在无系统 Edge/Chrome 的机器上，桌面窗口也能使用内置 Chromium 打开。
 
 DDL 页的「作业附件」提供复制绝对路径、打开资源管理器、搜索、上传、预览、
