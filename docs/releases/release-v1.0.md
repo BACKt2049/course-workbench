@@ -2,7 +2,7 @@
 
 首个包含 Windows EXE 的 GitHub Release。程序内部版本为 **1.3.1**，接续此前的 1.3.0，避免旧实例将发行包识别为降级版本。
 
-特别感谢 [qianhan-app](https://github.com/qianhan-111/qianhan-app)：它是本项目早期的重要灵感来源。
+特别感谢 [qianhan-app](https://github.com/qianhan-111/qianhan-app) 与 [campus-workbench](https://github.com/qianhan-111/campus-workbench)：它们是本项目早期的重要灵感来源。
 
 ## 下载与运行
 
