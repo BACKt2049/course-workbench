@@ -8,7 +8,7 @@ appScanLogin 地址虽然能生成图、也能被扫，但服务端没有这条 
 轮询永远拿不到结果 —— 实测扫了没反应。所以直接复用页面：
 点开 Scan Code 页签、取页面自己生成的二维码、等页面自己跳转。
 
-智慧树同理，而且它的微信二维码要点了「通过微信登录」才会插进 iframe。
+智慧树使用知到 App 的扫码页签，不使用微信登录二维码。
 """
 
 import base64
@@ -24,6 +24,9 @@ SERVICE = "https://classes.tju.edu.cn/eams/homeExt.action"
 CAS_LOGIN = "https://sso.tju.edu.cn/cas/login?service=" + urllib.parse.quote(SERVICE, safe="")
 ZHS_LOGIN = "https://passport.zhihuishu.com/login"
 QR_TTL = 180
+START_TTL = 90
+SESSIONS = {}
+SESSIONS_LOCK = threading.Lock()
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
@@ -46,6 +49,9 @@ class Session(object):
         self.note = ""
         self.png = None
         self.created_at = time.time()
+        self.ready_at = None
+        self.timings = {}
+        self.cancelled = threading.Event()
         self._lock = threading.Lock()
 
     def set(self, **kw):
@@ -62,13 +68,14 @@ class Session(object):
                 "error": self.error,
                 "note": self.note,
                 "hasImage": bool(self.png),
-                "remain": max(0, int(QR_TTL - (time.time() - self.created_at))),
+                "remain": max(0, int(QR_TTL - (time.time() - (self.ready_at or time.time())))),
+                "timings": dict(self.timings),
                 "hint": HINTS[self.site][1],
                 "title": HINTS[self.site][0],
             }
 
     def expired(self):
-        return time.time() - self.created_at > QR_TTL
+        return self.cancelled.is_set() or time.time() - (self.ready_at or self.created_at) > (QR_TTL if self.ready_at else START_TTL)
 
     def public(self):
         s = self.snap()
@@ -79,10 +86,34 @@ class Session(object):
 
 
 def start(site):
-    s = Session(site)
-    t = threading.Thread(target=_run, args=(s,), daemon=True)
-    t.start()
-    return s
+    with SESSIONS_LOCK:
+        previous = SESSIONS.get(site)
+        if previous and previous.public()['state'] not in ('done', 'expired', 'error'):
+            return previous
+        s = Session(site)
+        SESSIONS[site] = s
+        t = threading.Thread(target=_run, args=(s,), daemon=True)
+        t.start()
+        return s
+
+
+def cancel(site):
+    with SESSIONS_LOCK:
+        session = SESSIONS.get(site)
+        if session:
+            session.cancelled.set()
+            session.set(state='expired', png=None, error='已取消扫码')
+
+
+def _wait_qr(page, selectors):
+    """Wait for visible rendered QR media, rather than sleeping a fixed interval."""
+    page.wait_for_function('''selectors => [...document.querySelectorAll(selectors)].some(e => {
+      const r=e.getBoundingClientRect();
+      if(r.width<80 || r.height<80 || !e.getClientRects().length || getComputedStyle(e).visibility==='hidden') return false;
+      if(e.tagName==='IMG') return e.complete && e.naturalWidth>=80;
+      if(e.tagName==='CANVAS') return e.width>=80 && e.height>=80;
+      return e.tagName==='TABLE' && e.rows.length>12;
+    })''', arg=selectors, timeout=20000)
 
 
 # ---------------- 天大 ----------------
@@ -100,7 +131,7 @@ def _tju_grab(page):
         except Exception:
             continue
     store.append_event("qr_start", "Scan Code 页签: %s" % ("已点开" if clicked else "未找到"), site="tju")
-    page.wait_for_timeout(2500)
+    _wait_qr(page, "#qrcode img, #qrcode canvas, canvas, img[src^='data:image']")
 
     for sel in ["img[src^='data:image/png;base64']", "img[src^='data:image']", "canvas", "#qrcode img"]:
         try:
@@ -130,20 +161,12 @@ def _zhs_grab(page):
     先等它渲染出 tabs，再点「扫码」页签，然后用「可见近正方形容器」定位二维码，
     最后兜底截整个登录卡片 —— 二维码是 jquery.qrcode 画的，img/canvas 选择器都靠不住。
     """
-    ready = False
-    for _ in range(40):
-        try:
-            if page.evaluate("""() => {
+    page.wait_for_function("""() => {
                 if (document.readyState === 'loading') return false;
                 if (document.querySelectorAll('.el-tabs__item').length > 0) return true;
                 return /扫码|知到|机构登录/.test(document.body.innerText || '');
-            }"""):
-                ready = True
-                break
-        except Exception:
-            pass
-        page.wait_for_timeout(1500)
-    store.append_event("qr_start", "智慧树页面就绪: %s" % ready, site="zhs")
+            }""", timeout=30000)
+    store.append_event("qr_start", "智慧树页面就绪", site="zhs")
 
     clicked = page.evaluate("""() => {
       const tab = [...document.querySelectorAll('.el-tabs__item')]
@@ -155,7 +178,7 @@ def _zhs_grab(page):
       return 'none';
     }""")
     store.append_event("qr_start", "扫码页签: %s" % clicked, site="zhs")
-    page.wait_for_timeout(3500)
+    _wait_qr(page, '.qrcode-box img, .qrcode-box canvas, .qrcode-box table, .qrcode img, img.qrcode, .qr-code img, .el-tabs__content canvas, .el-tabs__content table')
 
     # 1) 实测的容器：.qrcode-box / .qrcode-box img（191×191）
     for sel in (".qrcode-box img", ".qrcode-box", ".qrcode img", "img.qrcode", ".qr-code img"):
@@ -252,6 +275,7 @@ def _verify(page, site):
 # ---------------- 主流程 ----------------
 
 def _run(sess):
+    started = time.monotonic()
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as e:
@@ -269,6 +293,7 @@ def _run(sess):
                 browser = store.launch_chromium(
                     p, headless=headless,
                     args=["--disable-blink-features=AutomationControlled"])
+                sess.timings['browserMs'] = round((time.monotonic() - started) * 1000)
             except Exception as e:
                 sess.set(state="error", error="内置浏览器暂时无法启动，请重新打开程序以自动修复：%s" % str(e)[:140])
                 store.append_event("error", "chromium 启动失败 %s" % e, site=site)
@@ -295,17 +320,22 @@ def _run(sess):
                 store.append_event("error", "打开登录页失败 %s" % str(e)[:100], site=site)
                 browser.close()
                 return
-            page.wait_for_timeout(2500)
+            sess.timings['pageMs'] = round((time.monotonic() - started) * 1000)
 
             png, how = (_tju_grab(page) if site == "tju" else _zhs_grab(page))
             sess.set(png=png, state="qr_ready" if png else "waiting_manual",
-                     note=how if png else "没截到二维码，请在浏览器窗口里扫")
+                     ready_at=time.time(), note=how if png else "没截到二维码，请在浏览器窗口里扫")
+            sess.timings['qrReadyMs'] = round((time.monotonic() - started) * 1000)
+            store.append_event('qr_timing', dict(sess.timings), site=site)
             store.append_event("qr_start", "二维码来源 %s" % how, site=site)
 
             deadline = time.time() + QR_TTL
             verified = False
             seen_move = False
             while time.time() < deadline:
+                if sess.cancelled.is_set():
+                    browser.close()
+                    return
                 moved = _tju_done(ctx, page) if site == "tju" else _zhs_done(page)
                 if moved:
                     seen_move = True

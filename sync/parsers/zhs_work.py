@@ -11,6 +11,7 @@
 import hashlib
 import json
 import re
+import task_sync
 
 from . import _html as H
 
@@ -23,6 +24,19 @@ KEYS_COURSE = ("courseName", "course_name", "subjectName", "parentName")
 def _stable_id(*parts):
     raw = "|".join([str(p or "") for p in parts]).encode("utf-8")
     return "zhs_" + hashlib.md5(raw).hexdigest()[:10]
+
+
+def _decorate(item, raw, account_key=''):
+    ref = {'provider': 'zhs', 'accountKey': account_key,
+           'kind': 'exam' if item.get('type') == '考试' else 'homework',
+           'courseId': str(raw.get('courseId') or ''),
+           'homeworkId': str(raw.get('homeworkId') or raw.get('examId') or raw.get('id') or '')}
+    item['sourceRef'] = ref
+    item['legacyIds'] = [_stable_id(item['title'], item['due'])]
+    item['id'] = task_sync.stable_id(ref) if ref['courseId'] and ref['homeworkId'] else _stable_id(
+        account_key, item.get('courseName'), item['title'], item['due'])
+    item.update(task_sync.submission(raw))
+    return task_sync.normalize(item)
 
 
 def _scripts(html):
@@ -81,7 +95,7 @@ def _norm_due(v):
     return ""
 
 
-def _from_json(html):
+def _from_json(html, account_key=''):
     hits = []
     for body in _scripts(html):
         obj = _try_json(body)
@@ -101,7 +115,7 @@ def _from_json(html):
         course = next((node[k] for k in KEYS_COURSE if isinstance(node.get(k), str) and node.get(k) != title), "")
         if not title or not due:
             continue
-        out.append({
+        out.append(_decorate({
             "id": _stable_id(title, due),
             "title": title,
             "courseName": course,
@@ -110,7 +124,7 @@ def _from_json(html):
             "minutes": 90,
             "done": False,
             "note": "来自智慧树页面数据，提交要求请以站内为准",
-        })
+        }, node, account_key))
     return out
 
 
@@ -119,7 +133,7 @@ _DOM_ITEM = re.compile(
     re.S | re.I)
 
 
-def _from_dom(html):
+def _from_dom(html, account_key=''):
     out = []
     for m in _DOM_ITEM.finditer(html or ""):
         text = H.strip_tags(m.group(0))
@@ -130,7 +144,7 @@ def _from_dom(html):
         if not due:
             continue
         title = text.split(dm.group(1))[0].strip()[:60] or text[:40]
-        out.append({
+        out.append(_decorate({
             "id": _stable_id(title, due),
             "title": title,
             "courseName": "",
@@ -139,14 +153,14 @@ def _from_dom(html):
             "minutes": 90,
             "done": False,
             "note": "从页面文本推断，请核对",
-        })
+        }, {}, account_key))
     return out
 
 
 API_BLOCK = re.compile(r"<script>window\.__API_\d+__ = ([\s\S]*?);</script>")
 
 
-def parse_api(blob):
+def parse_api(blob, account_key=''):
     """从页面捕获的 JSON 接口里挖作业/考试。
 
     实测结构（学生首页「即将截止」接口）：
@@ -156,8 +170,6 @@ def parse_api(blob):
     这是最可靠的一条路 —— 比解析渲染后的 DOM 稳定得多。
     """
     items, seen = [], set()
-    import time as _t
-    cutoff = _t.time() - 7 * 86400      # 半年前的历史作业不要，刚过期的留着提醒
     for m in API_BLOCK.finditer(blob or ""):
         try:
             obj = json.loads(m.group(1))
@@ -176,19 +188,14 @@ def parse_api(blob):
             due = _norm_due(end)
             if not due:
                 continue
-            try:
-                from datetime import datetime as _dt
-                if _dt.strptime(due, "%Y-%m-%dT%H:%M").timestamp() < cutoff:
-                    continue
-            except Exception:
-                pass
             course = (x.get("courseName") or "").strip()
             kind = "考试" if str(x.get("type")) == "2" else "作业"
-            key = (title, due)
+            key = (account_key, str(x.get('courseId') or course), kind,
+                   str(x.get('homeworkId') or x.get('id') or title), due)
             if key in seen:
                 continue
             seen.add(key)
-            items.append({
+            items.append(_decorate({
                 "id": _stable_id(title, due),
                 "sourceRef": {"provider": "zhs", "kind": "exam" if kind == "考试" else "homework",
                               "courseId": str(x.get("courseId") or ""),
@@ -200,14 +207,14 @@ def parse_api(blob):
                 "minutes": 90,
                 "done": False,
                 "note": "",
-            })
+            }, x, account_key))
     return {"items": items, "unparsed": []}
 
 
-def parse(html):
-    items = _from_json(html)
+def parse(html, account_key=''):
+    items = _from_json(html, account_key)
     if not items:
-        items = _from_dom(html)
+        items = _from_dom(html, account_key)
     unparsed = []
     if not items:
         unparsed.append({

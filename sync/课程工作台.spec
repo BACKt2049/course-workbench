@@ -21,7 +21,7 @@ datas = [(str(_here / 'app.html'), '.'), (str(_here / 'web'), 'web')]
 binaries = []
 hiddenimports = [
     'server', 'store', 'cas_qr', 'zhs_qr', 'browser_login',
-    'pipeline', 'zhs_detail', 'launcher', 'attachments',
+    'pipeline', 'zhs_detail', 'launcher', 'attachments', 'task_sync',
     'runtime_config', 'runtime_assets', 'durable_json', 'data_safety', 'app_info',
     'zhs_client', 'zhs_answer_probe', 'ui_assets', 'answers',
     'answers.models', 'answers.normalize', 'answers.repository',

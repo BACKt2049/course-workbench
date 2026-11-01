@@ -48,14 +48,16 @@ def pull_zhs(which=None, progress=None):
     if not ok:
         raise NeedLogin(note or "未登录")
     pages = zhs_qr.fetch_pages(which=which)
+    from zhs_client import account_key
+    account = account_key(store.load_state('zhs') or {})
     parsed = {"ddl": [], "progress": [], "unparsed": []}
     for name, html in pages.items():
         if name == "api":
             # 作业/考试的真身在这些 JSON 里，比解析渲染后的 DOM 可靠
-            r = zhs_work.parse_api(html)
+            r = zhs_work.parse_api(html, account_key=account)
             parsed["ddl"] += r["items"]
             continue
-        r = zhs_work.parse(html)
+        r = zhs_work.parse(html, account_key=account)
         parsed["ddl"] += r["items"]
         parsed["unparsed"] += r["unparsed"]
         r = zhs_progress.parse(html)

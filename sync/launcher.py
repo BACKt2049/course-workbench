@@ -423,7 +423,7 @@ def run(port=None):
             webbrowser.open("http://127.0.0.1:%d/" % port_now)
         return 0
 
-    srv, actual = server.start_server(port=port, auto=False, lan=True, quiet=True)
+    srv, actual = server.start_server(port=port, auto=False, lan=False, quiet=True)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     _log("服务已启动，端口 %s" % actual)
 

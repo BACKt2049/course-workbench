@@ -209,6 +209,14 @@ def _from_table(html):
             if s0 in H.JIE:
                 start = H.JIE[s0][0]
                 end = H.JIE.get(s1, H.JIE[s0])[1]
+            previous = next((c for c in reversed(out)
+                             if (c['name'], c['weekday'], c['teacher'], c['room'], c['weeks'], c['parity'])
+                             == (name, col, teacher, room, weeks or '', parity)
+                             and s0 is not None and c.get('_lastSection') == s0 - 1), None)
+            if previous is not None:
+                previous['end'] = end
+                previous['_lastSection'] = s1
+                continue
             out.append({
                 "id": _stable_id(name, col, start),
                 "name": name, "weekday": col,
@@ -216,7 +224,10 @@ def _from_table(html):
                 "start": start, "end": end,
                 "room": room, "teacher": teacher,
                 "weeks": weeks or "", "parity": parity, "note": "",
+                "_lastSection": s1,
             })
+    for item in out:
+        item.pop('_lastSection', None)
     return out
 
 

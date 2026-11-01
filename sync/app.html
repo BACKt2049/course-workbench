@@ -871,6 +871,7 @@
 var KEY = 'campus_workbench_v1';
 var DB = null;
 var workspaceReady = false, workspaceTimer = null, workspaceRevision = 0, hadLocalWorkspace = false;
+var workspaceWrite = Promise.resolve();
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function pad(n){ return n < 10 ? '0' + n : '' + n; }
@@ -1103,6 +1104,11 @@ function toMin(t){
 }
 function byDue(a,b){ return new Date(a.due) - new Date(b.due); }
 
+function submissionTag(x){
+  if(!x.submissionStatus || !(x.src==='zhs' || (x.sourceRef||{}).provider==='zhs')) return '';
+  var label=({unknown:'状态未知',not_submitted:'未提交',submitted:'已提交',graded:'已批改',returned:'已退回',withdrawn:'已撤回'})[x.submissionStatus] || '状态未知';
+  return '<span class="tag">平台：'+esc(label)+'</span>';
+}
 function renderDdlList(box, list, opt){
   opt = opt || {};
   if(!list.length){
@@ -1122,6 +1128,7 @@ function renderDdlList(box, list, opt){
         '<div class="ddl-sub">' +
           (cName ? '<span>' + esc(cName) + '</span>' : '') +
           '<span class="tag">' + esc(x.type) + '</span>' +
+          submissionTag(x) +
           ((x.content || (x.attachments && x.attachments.length))
             ? '<span class="tag">' + ((x.attachments && x.attachments.length)
                 ? x.attachments.length + ' 个附件' : '有要求') + '</span>' : '') +
@@ -1141,6 +1148,10 @@ function toggleDdl(id){
   DB.ddl.forEach(function(d){ if(d.id === id) x = d; });
   if(!x) return;
   x.done = !x.done;
+  x.workStatus = x.done ? 'done' : 'todo';
+  x.workStatusExplicit = true;
+  x.workStatusOrigin = 'user';
+  x.workStatusUpdatedAt = Date.now();
   save();
   renderHome(); renderDdl();
   if(window.__curCourse) renderCourse(window.__curCourse);
@@ -1235,6 +1246,7 @@ function colHtml(dot, title, arr){
         '<div class="ddl-main">' +
           '<div class="ddl-title" onclick="openDdlDetail(\'' + x.id + '\')" style="cursor:pointer" title="点开看任务要求和附件">' + esc(x.title) + '</div>' +
           '<div class="ddl-sub">' + (c ? '<span>' + esc(c.name) + '</span>' : '') +
+            submissionTag(x) +
             ((x.content || (x.attachments && x.attachments.length))
               ? '<span class="tag">' + ((x.attachments && x.attachments.length)
                   ? x.attachments.length + ' 个附件' : '有要求') + '</span>' : '') +
@@ -1743,7 +1755,7 @@ function saveSettings(){
 function resetAll(){
   if(!confirm('清空全部课程、DDL 与笔记？此操作不可恢复，建议先导出 JSON 备份。')) return;
   localStorage.removeItem(KEY);
-  DB = defaultDB(); save();
+  DB = defaultDB(); DB.resetAt = Date.now(); save();
   closeMask('setMask');
   go('home');
   toast('已重置为示例数据');
@@ -1772,9 +1784,16 @@ document.getElementById('s-file').addEventListener('change', function(e){
 
 /* ================= 通用 ================= */
 function openMask(id){ document.getElementById(id).classList.add('open'); }
-function closeMask(id){ document.getElementById(id).classList.remove('open'); }
+function closeMask(id){
+  document.getElementById(id).classList.remove('open');
+  if(id==='qrMask' && syncUI.loginSite){
+    clearTimeout(syncUI.loginTimer);
+    var site=syncUI.loginSite;syncUI.loginSite=null;
+    wbApi('/api/login/'+site+'/cancel',{method:'POST'}).catch(function(){});
+  }
+}
 document.querySelectorAll('.mask').forEach(function(m){
-  m.addEventListener('click', function(e){ if(e.target === m) m.classList.remove('open'); });
+  m.addEventListener('click', function(e){ if(e.target === m) closeMask(m.id); });
 });
 var toastTimer = null;
 function toast(msg){
@@ -1872,16 +1891,26 @@ async function wbApi(path, opt, retried){
   return response.json().catch(function(){ return {ok:false,error:'本地服务响应异常，请重新打开程序'}; });
 }
 
-async function persistWorkspace(){
+function persistWorkspace(){
   if(!workspaceReady || !WB.canSync) return;
   clearTimeout(workspaceTimer);
-  try{
-    var result = await wbApi('/api/workspace',{method:'POST',body:{workspace:DB}});
-    if(!result.ok) throw new Error(result.error || '保存失败');
-  } catch(error){
-    var box = document.getElementById('backupStatus');
-    if(box) box.textContent = '文件夹保存暂未成功，浏览器缓存已保留：' + error.message;
-  }
+  var value = JSON.parse(JSON.stringify(DB)), revision = workspaceRevision;
+  workspaceWrite = workspaceWrite.then(async function(){
+    try{
+      var result = await wbApi('/api/workspace',{method:'POST',body:{workspace:value}});
+      if(!result.ok) throw new Error(result.error || '保存失败');
+      if(result.workspace && workspaceRevision === revision){
+        DB.ddl = result.workspace.ddl;
+        localStorage.setItem(KEY, JSON.stringify(DB));
+      }
+      return result;
+    } catch(error){
+      var box = document.getElementById('backupStatus');
+      if(box) box.textContent = '文件夹保存暂未成功，浏览器缓存已保留：' + error.message;
+      return {ok:false,error:error.message};
+    }
+  });
+  return workspaceWrite;
 }
 
 async function restoreWorkspace(){
@@ -1895,12 +1924,11 @@ async function restoreWorkspace(){
        (!hadLocalWorkspace || Number(remote.updatedAt || 0) > Number(DB.updatedAt || 0))){
       DB = migrate(remote);
       localStorage.setItem(KEY,JSON.stringify(DB));
-    } else if(!hadLocalWorkspace && !remote){
-      var latest = await wbApi('/api/latest');
-      if((latest.courses || []).length || (latest.ddl || []).length){
-        DB.notes = [];
-        DB = mergeSync(DB,latest,true);
-      }
+    }
+    var latest = await wbApi('/api/latest');
+    if((latest.courses || []).length || (latest.ddl || []).length){
+      if(!hadLocalWorkspace && !remote) DB.notes = [];
+      DB = mergeSync(DB,latest,true);
     }
     workspaceReady = true;
     await persistWorkspace();
@@ -1933,7 +1961,8 @@ function openDataFolder(){
 async function backupDataNow(){
   var button = document.getElementById('backupDataBtn'); button.disabled = true;
   try{
-    await persistWorkspace();
+    var saved = await persistWorkspace();
+    if(saved && !saved.ok) throw new Error(saved.error);
     var result = await wbApi('/api/storage/backup',{method:'POST'});
     if(!result.ok) throw new Error(result.error);
     document.getElementById('backupStatus').textContent = '已备份到：' + result.file + ((result.skipped || []).length ? '（部分正在使用的浏览器文件未复制）' : '');
@@ -1950,18 +1979,59 @@ function fmtShort(s){
 }
 
 /* ================= 同步：合并 ================= */
-/* 按来源合并：先删掉「本次同步来源」的旧记录，再插新的；手工录入的 src=manual 永不被删 */
+/* Task observations update facts; explicit local decisions survive refresh. */
+function normalizeTask(task){
+  var x = Object.assign({},task);
+  if(x.workStatusExplicit === undefined){
+    x.workStatusExplicit = !!x.done;
+    x.workStatusOrigin = x.done ? 'legacy' : 'automatic';
+  }
+  if(['todo','in_progress','done'].indexOf(x.workStatus) < 0) x.workStatus = x.done ? 'done' : 'todo';
+  if(!x.submissionStatus) x.submissionStatus = 'unknown';
+  if(!x.workStatusExplicit && ['submitted','graded'].indexOf(x.submissionStatus) >= 0) x.workStatus = 'done';
+  x.done = x.workStatus === 'done';
+  return x;
+}
+function taskRef(x){
+  var r = x.sourceRef || {};
+  return [r.provider || x.src || '',r.accountKey || '',r.courseId || '',r.kind || (x.type==='考试' ? 'exam' : 'homework'),r.homeworkId || r.externalId || ''].map(String);
+}
+function taskCompatible(a,b){
+  var x=taskRef(a),y=taskRef(b);
+  if((!x[2] || !y[2]) && a.courseName && b.courseName && a.courseName !== b.courseName) return false;
+  return x.every(function(v,i){return !v || !y[i] || v===y[i];});
+}
+function taskAliases(x){return [x.id].concat(x.legacyIds || []).filter(Boolean);}
+function taskMatch(tasks,x){
+  var candidates=tasks.filter(function(t){return taskCompatible(t,x);}),r=taskRef(x);
+  var exact=candidates.filter(function(t){return r[0] && r[2] && r[4] && JSON.stringify(taskRef(t))===JSON.stringify(r);});
+  if(exact.length===1) return exact[0];
+  exact=candidates.filter(function(t){return taskAliases(t).some(function(id){return taskAliases(x).indexOf(id)>=0;});});
+  if(exact.length===1) return exact[0];
+  exact=candidates.filter(function(t){var k=taskRef(t);return (!k[2] || !k[4] || !r[2] || !r[4]) && t.title===x.title && x.courseName && t.courseName===x.courseName;});
+  return exact.length===1 ? exact[0] : null;
+}
+function mergeTask(old,incoming){
+  old=normalizeTask(old); incoming=normalizeTask(incoming);
+  var x=Object.assign({},old,incoming),decision=old;
+  if(incoming.workStatusExplicit && (!old.workStatusExplicit || Number(incoming.workStatusUpdatedAt||0)>Number(old.workStatusUpdatedAt||0))) decision=incoming;
+  ['workStatus','workStatusExplicit','workStatusOrigin','workStatusUpdatedAt'].forEach(function(k){if(decision[k]!==undefined)x[k]=decision[k];});
+  ['note','minutes','courseId'].forEach(function(k){if(old[k]!==undefined)x[k]=old[k];});
+  if(old.localUpdatedAt && Number(old.localUpdatedAt)>Number(incoming.localUpdatedAt||0)){
+    ['content','attachments','localUpdatedAt'].forEach(function(k){if(old[k]!==undefined)x[k]=old[k];});
+  }
+  x.id=old.id;
+  x.sourceRef=Object.assign({},old.sourceRef||{});
+  Object.keys(incoming.sourceRef||{}).forEach(function(k){if(incoming.sourceRef[k])x.sourceRef[k]=incoming.sourceRef[k];});
+  x.legacyIds=Array.from(new Set(taskAliases(old).concat(taskAliases(incoming)))).filter(function(id){return id!==x.id;});
+  return normalizeTask(x);
+}
 function mergeSync(db, payload, replace){
-  var localTasks = {};
-  (db.ddl || []).forEach(function(task){ localTasks[task.id] = task; });
   ['courses','exams','ddl','progress'].forEach(function(k){
     var incoming = payload[k] || [];
     if(!incoming.length) return;             /* 空结果不清旧数据——失败也不能让课表变空 */
     db[k] = db[k] || [];
     if(replace){
-      var srcs = {};
-      incoming.forEach(function(x){ srcs[x.src || 'manual'] = 1; });
-      db[k] = db[k].filter(function(x){ return !srcs[x.src]; });
       /* 真数据来了就别再留着示例数据 */
       if(k === 'courses'){
         db[k] = db[k].filter(function(x){ return String(x.id).indexOf('demo_') !== 0; });
@@ -1984,25 +2054,26 @@ function mergeSync(db, payload, replace){
         });
       }
     }
-    var seen = {};
-    db[k].forEach(function(x){ seen[x.id] = 1; });
     incoming.forEach(function(x){
       var it = {}, key;
       for(key in x){ if(Object.prototype.hasOwnProperty.call(x, key)) it[key] = x[key]; }
       if(!it.id) it.id = uid();
-      if(k === 'ddl'){ it.done = !!it.done; it.minutes = it.minutes || 90; }
-      if(k === 'ddl' && localTasks[it.id]){
-        ['done','note','minutes','courseId'].forEach(function(field){
-          if(localTasks[it.id][field] !== undefined) it[field] = localTasks[it.id][field];
-        });
+      if(k === 'ddl'){
+        if((db.deletedTasks || []).some(function(d){return taskCompatible(d,it) && taskAliases(d).some(function(id){return taskAliases(it).indexOf(id)>=0;});})) return;
+        it=normalizeTask(it); it.minutes=it.minutes||90;
+        var previous=taskMatch(db[k],it);
+        if(previous){db[k][db[k].indexOf(previous)]=mergeTask(previous,it);return;}
       }
       if(k === 'courses'){ it.weekday = +it.weekday || 1; it.category = it.category || '必修'; }
-      if(!seen[it.id]){ db[k].push(it); seen[it.id] = 1; }
+      var index=db[k].findIndex(function(t){return t.id===it.id && (k!=='ddl' || taskCompatible(t,it));});
+      if(index>=0) db[k][index]=Object.assign({},db[k][index],it);
+      else db[k].push(it);
     });
   });
   db.syncMeta = db.syncMeta || {};
   if(payload.generatedAt) db.syncMeta.generatedAt = payload.generatedAt;
   if(payload.unparsed) db.syncMeta.unparsed = payload.unparsed.slice(0, 12);
+  if(payload.syncStats) db.syncMeta.syncStats = payload.syncStats;
   save();
   return db;
 }
@@ -2167,6 +2238,8 @@ function qrShow(has){
 
 function wbConnect(site){
   if(!WB.canSync){ toast('请从 127.0.0.1 打开的页面里操作'); return; }
+  if(syncUI.loginSite && syncUI.loginSite!==site) closeMask('qrMask');
+  syncUI.loginSite=site;
   var img = document.getElementById('qrImg');
   img.removeAttribute('src');
   img.removeAttribute('data-loaded');
@@ -2180,6 +2253,7 @@ function wbConnect(site){
   openMask('qrMask');
 
   wbApi('/api/login/' + site + '/start', { method:'POST' }).then(function(r){
+    if(syncUI.loginSite!==site) return;
     if(!r || !r.ok){ document.getElementById('qrState').textContent = (r && r.error) || '起会话失败'; return; }
     var src = WB.api + r.qrUrl;
     if(r.title) document.getElementById('qrTitle').textContent = r.title;
@@ -2193,9 +2267,11 @@ function wbConnect(site){
 }
 
 function wbPollLogin(site, sid, src){
+  if(syncUI.loginSite!==site) return;
   clearTimeout(syncUI.loginTimer);
   syncUI.loginTimer = setTimeout(function(){
     wbApi('/api/login/' + site + '/poll?sid=' + sid).then(function(r){
+      if(syncUI.loginSite!==site) return;
       var st = document.getElementById('qrState');
       var img = document.getElementById('qrImg');
       if(r.hasImage && img.getAttribute('data-loaded') !== '1'){
@@ -2208,6 +2284,7 @@ function wbPollLogin(site, sid, src){
       if(r.remain) txt += ' · 剩余 ' + r.remain + ' 秒';
       st.textContent = txt;
       if(r.state === 'done'){
+        syncUI.loginSite=null;
         closeMask('qrMask');
         toast('登录成功，正在拉取数据…');
         refreshStatus();
@@ -2283,6 +2360,8 @@ function wbPollJob(id){
     }
     wbApi('/api/latest').then(function(data){
       DB = mergeSync(DB, data, true);
+      var stats=data.syncStats && data.syncStats.zhs;
+      if(note && stats) note.textContent='任务：新增 '+stats.added+' · 更新 '+stats.updated+' · 无变化 '+stats.unchanged+' · 冲突 '+stats.conflicts+' · 失败 '+stats.failed + (note.textContent ? '；'+note.textContent : '');
       renderHome();
       if(!document.getElementById('view-exams').hidden) renderExams();
       if(!document.getElementById('view-schedule').hidden) renderSchedule();
@@ -2594,7 +2673,8 @@ function ddAddFile(){
   if(!url){ toast('先贴一个链接'); return; }
   if(!/^https?:\/\//i.test(url)) url = 'https://' + url;
   x.attachments = x.attachments || [];
-  x.attachments.push({ name: name || url, url: url });
+  x.attachments.push({ name: name || url, url: url, manual:true });
+  x.localUpdatedAt = Date.now();
   document.getElementById('ddFileName').value = '';
   document.getElementById('ddFileUrl').value = '';
   renderDdFiles();
@@ -2606,6 +2686,7 @@ function ddDelFile(i){
   var x = ddTask(ddCur);
   if(!x || !x.attachments) return;
   x.attachments.splice(i, 1);
+  x.localUpdatedAt = Date.now();
   renderDdFiles();
   save();
 }
@@ -2614,6 +2695,7 @@ function ddSave(){
   var x = ddTask(ddCur);
   if(!x) return;
   x.content = document.getElementById('ddContent').value;
+  x.localUpdatedAt = Date.now();
   save();
   closeMask('ddlDetailMask');
   toast('已保存');
@@ -2738,7 +2820,7 @@ document.querySelectorAll('.nav a').forEach(function(a){
 });
 document.getElementById('note').addEventListener('input', autoSave);
 document.addEventListener('keydown', function(e){
-  if(e.key === 'Escape'){ document.querySelectorAll('.mask.open').forEach(function(m){ m.classList.remove('open'); }); }
+  if(e.key === 'Escape'){ document.querySelectorAll('.mask.open').forEach(function(m){ closeMask(m.id); }); }
   if((e.metaKey || e.ctrlKey) && e.key === 's'){
     e.preventDefault();
     if(!document.getElementById('view-course').hidden) saveNoteNow();

@@ -115,6 +115,18 @@ def _fetch_using(client):
     reminders = client.get(LIST_URL).get("rt")
     if not isinstance(reminders, list):
         raise PlatformError("parse", "作业提醒列表结构异常")
+    reminders = list(reminders)
+    known = {(str(x.get('courseId')), str(x.get('homeworkId') or x.get('id'))) for x in reminders}
+    for task in store.read_latest().get('ddl', []):
+        ref = task.get('sourceRef') or {}
+        if ref.get('provider') != 'zhs' or ref.get('kind') == 'exam':
+            continue
+        if ref.get('accountKey') and ref['accountKey'] != client.account_key:
+            continue
+        pair = (str(ref.get('courseId') or ''), str(ref.get('homeworkId') or ''))
+        if all(pair) and pair not in known:
+            reminders.append(dict(task, courseId=pair[0], homeworkId=pair[1], type=1))
+            known.add(pair)
     for item in reminders:
         if str(item.get("type", "1")) != "1":
             continue
@@ -142,6 +154,9 @@ def _fetch_using(client):
             "paperId": rt.get("paperId"), "files": [],
             "questions": [], "status": rt.get("status"),
         }
+        import task_sync
+        rec.update(task_sync.submission(rt))
+        rec['accountKey'] = client.account_key
         short = {"homeworkId": hw, "uuid": client.uuid}
         try:
             full = client.get("/homeworkDir/homeworkDirGet2", short).get("rt") or {}

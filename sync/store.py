@@ -12,8 +12,21 @@ import os
 import sys
 import time
 import durable_json
+import task_sync
+import threading
+from functools import wraps
 from datetime import datetime
 from pathlib import Path
+
+DATA_LOCK = threading.RLock()
+
+
+def locked(function):
+    @wraps(function)
+    def call(*args, **kwargs):
+        with DATA_LOCK:
+            return function(*args, **kwargs)
+    return call
 
 _here = Path(__file__).resolve().parent
 
@@ -213,8 +226,8 @@ EMPTY = {"courses": [], "exams": [], "ddl": [], "progress": [], "unparsed": []}
 
 def read_latest():
     obj = read_json(LATEST, None) or {}
-    out = dict(EMPTY)
-    out.update({k: v for k, v in obj.items() if k in EMPTY or k in ("generatedAt", "unparsed")})
+    out = {key: [] for key in EMPTY}
+    out.update({k: v for k, v in obj.items() if k in EMPTY or k in ("generatedAt", "unparsed", "syncStats")})
     for k in ("courses", "exams", "ddl", "progress", "unparsed"):
         out.setdefault(k, [])
     import attachments
@@ -223,43 +236,33 @@ def read_latest():
     return out
 
 
+@locked
 def merge_latest(site, parsed, replace=False):
-    """按站合并：replace=True 时先清掉该站旧数据再写入。
-
-    解析器返回的每一条都带 src=site，前端再按 src 做同样的替换，
-    所以这里保持语义一致很重要。
-    """
+    """Incremental upsert; a reminder/list omission never deletes saved work."""
     cur = read_latest()
-    manual_files = {x.get("id"): [a for a in x.get("attachments", []) if a.get("manual")]
-                    for x in cur.get("ddl", [])}
-    local_tasks = {x.get('id'): x for x in cur.get('ddl', [])}
-    if replace:
-        # 只有「这次确实解析出东西」才替换该来源，否则保留旧数据。
-        # 智慧树的作业来自懒加载接口，偶尔抓不到 —— 不能因此把列表清空。
-        for k in ("courses", "exams", "ddl", "progress"):
-            if parsed.get(k):
-                cur[k] = [x for x in cur.get(k, []) if x.get("src") != site]
-        cur["unparsed"] = [x for x in cur.get("unparsed", []) if x.get("src") != site]
+    workspace = read_json(DATA / 'workspace.json', {}) or {}
+    deleted = workspace.get('deletedTasks') or []
+    # Older versions saved the checkbox only in workspace.json, not latest.json.
+    cur['ddl'], _ = task_sync.reconcile(cur['ddl'], workspace.get('ddl') or [], local=True, deleted=deleted)
     added = {k: 0 for k in ("courses", "exams", "ddl", "progress")}
     for key in ("courses", "exams", "ddl", "progress"):
+        incoming = [dict(item, src=site) for item in parsed.get(key, [])]
+        added[key] = len(incoming)
+        if key == 'ddl':
+            cur[key], stats = task_sync.reconcile(cur[key], incoming, deleted=deleted)
+            cur.setdefault('syncStats', {})[site] = stats
+            continue
+        positions = {(x.get('src'), x.get('id')): i for i, x in enumerate(cur[key])}
         for item in parsed.get(key, []):
             item = dict(item)
             item["src"] = site
-            if key == 'ddl' and item.get('id') in local_tasks:
-                old = local_tasks[item['id']]
-                for field in ('done', 'note', 'minutes', 'courseId'):
-                    if field in old:
-                        item[field] = old[field]
-                for field in ('sourceRef', 'content', 'detailAt', 'paperId', 'enrich'):
-                    if field not in item and field in old:
-                        item[field] = old[field]
-                if not item.get('attachments'):
-                    item['attachments'] = list(old.get('attachments') or [])
-                else:
-                    incoming = list(item['attachments'])
-                    item['attachments'] = incoming + [a for a in manual_files.get(item['id'], []) if a not in incoming]
-            cur[key].append(item)
-            added[key] += 1
+            pair = (site, item.get('id'))
+            if pair in positions:
+                cur[key][positions[pair]].update(item)
+            else:
+                positions[pair] = len(cur[key])
+                cur[key].append(item)
+    cur['unparsed'] = [x for x in cur['unparsed'] if x.get('src') != site]
     for item in parsed.get("unparsed", []):
         item = dict(item)
         item["src"] = site
@@ -269,11 +272,36 @@ def merge_latest(site, parsed, replace=False):
     return added
 
 
+@locked
+def save_workspace(value):
+    """Keep local decisions in both durable snapshots; preserve newer source facts."""
+    previous = read_json(DATA / 'workspace.json', {}) or {}
+    deleted = {x['id']: x for x in previous.get('deletedTasks', []) if x.get('id')}
+    deleted.update({x['id']: x for x in value.get('deletedTasks', []) if isinstance(x, dict) and x.get('id')})
+    value = dict(value)
+    if deleted or 'deletedTasks' in value:
+        value['deletedTasks'] = list(deleted.values())
+    latest = read_latest()
+    if int(value.get('resetAt') or 0) > int(previous.get('resetAt') or 0):
+        import data_safety
+        data_safety.backup(ROOT, reason='清空工作台前', force=True)
+        previous = {}
+        latest = {key: [] for key in EMPTY}
+    existing, _ = task_sync.reconcile(latest['ddl'], previous.get('ddl') or [], local=True)
+    tasks, _ = task_sync.reconcile(existing, value['ddl'], local=True, deleted=list(deleted.values()))
+    value['ddl'] = tasks
+    write_json(DATA / 'workspace.json', value)
+    latest['ddl'] = [x for x in tasks if not str(x.get('id', '')).startswith('demo_')]
+    write_json(LATEST, latest)
+    return value
+
+
 def counts():
     cur = read_latest()
     return {k: len(cur.get(k, [])) for k in ("courses", "exams", "ddl", "progress", "unparsed")}
 
 
+@locked
 def enrich_ddl(details):
     """按平台ID关联详情；旧任务只在课程、标题、截止时间唯一匹配时补关联。
 
@@ -299,11 +327,19 @@ def enrich_ddl(details):
             d = candidates[0]
         if not d:
             continue
+        if ref.get('accountKey') and d.get('accountKey') and ref['accountKey'] != d['accountKey']:
+            continue
         req = d.get("requirement") or ""
         item['content'] = req[:20000]
         if d.get('homeworkId') and d.get('courseId'):
-            item['sourceRef'] = {'provider': 'zhs', 'kind': 'homework',
-                                 'courseId': str(d['courseId']), 'homeworkId': str(d['homeworkId'])}
+            item['sourceRef'] = dict(ref, provider='zhs', kind='homework',
+                                     courseId=str(d['courseId']), homeworkId=str(d['homeworkId']))
+            if d.get('accountKey'):
+                item['sourceRef']['accountKey'] = d['accountKey']
+        if 'submissionStatus' in d:
+            item.update(submissionStatus=d['submissionStatus'], submissionObservedAt=now_iso(),
+                        submissionEvidence=d.get('submissionEvidence', ''))
+            item.update(task_sync.normalize(item))
 
         # 附件：homeworkDirGet2 给的 fileList，下载到 data/att/
         # 前端 attachments 只要 {name, url}；多给的 local/size/ext 用于显示「已存本地」

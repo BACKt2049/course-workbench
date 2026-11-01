@@ -18,7 +18,7 @@ from . import _html as H
 HEAD_HINTS = {
     # 注意「课程序号」也含"课程"二字，这里必须精确到「课程名称」，否则整列错位
     "courseName": ("课程名称",),
-    "kind": ("考试类别", "考核方式", "考试形式"),
+    "kind": ("考试类别", "考核方式", "考试形式", "考核形式"),
     "time": ("考试日期", "考试时间"),
     "batch": ("批次",),
     "arrange": ("考试安排",),
@@ -29,6 +29,10 @@ HEAD_HINTS = {
 }
 
 UNSET = ("未安排", "时间未安排", "地点未安排", "待定", "-", "—")
+
+
+def _unset(text):
+    return text.strip() in ('-', '—') or any(x in text for x in UNSET if x not in ('-', '—'))
 
 
 def _stable_id(*parts):
@@ -111,7 +115,7 @@ def _clean(cell):
 
 
 def parse(html):
-    seg = _find_table(html, ("考试日期", "考场座位号"))
+    seg = _find_table(html, ("考试日期", "考试时间", "考场座位号"))
     if not seg:
         return {"items": [], "unparsed": [{
             "kind": "exams",
@@ -137,15 +141,15 @@ def parse(html):
         place = get("place")
         seat = get("seat")
         time_iso = _norm_dt(time_txt)
-        if not time_iso or any(u in time_txt for u in UNSET):
+        if not time_iso or _unset(time_txt):
             pending += 1
             continue
         items.append({
             "id": _stable_id(name, time_iso),
             "courseName": name.replace("*", ""),
             "time": time_iso,
-            "place": "" if any(u in place for u in UNSET) else place,
-            "seat": "" if any(u in seat for u in UNSET) else seat,
+            "place": "" if _unset(place) else place,
+            "seat": "" if _unset(seat) else seat,
             "type": get("kind") or "考试",
             "note": get("note"),
         })

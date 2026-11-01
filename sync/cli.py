@@ -39,7 +39,7 @@ store.prepare_browser()
 def cmd_serve(a):
     import server
     server.serve(port=a.port, open_browser=not a.no_open, auto=a.auto,
-                 lan=not getattr(a, "no_lan", False))
+                 lan=getattr(a, 'lan', False) and not getattr(a, "no_lan", False))
 
 
 def cmd_desktop(a):
@@ -160,7 +160,8 @@ def main():
     p = sub.add_parser("serve", help="起本地服务")
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--no-open", action="store_true")
-    p.add_argument("--no-lan", action="store_true", help="只允许本机访问（默认放开局域网，方便手机）")
+    p.add_argument("--no-lan", action="store_true", help="只允许本机访问（兼容旧命令，现为默认）")
+    p.add_argument("--lan", action="store_true", help="显式允许局域网访问")
     p.add_argument("--auto", action="store_true", help="开启每天 08:00 / 20:00 自动刷新")
 
     p = sub.add_parser("desktop", help="桌面窗口模式（独立窗口，无地址栏）")

@@ -28,3 +28,9 @@ jobs:
         run: python -m unittest discover -s sync/tests -p test_attachments.py -v
       - name: Reliability tests
         run: python -m unittest discover -s sync/tests -p test_reliability.py -v
+      - name: Task identity and status regressions
+        run: python -m unittest discover -s sync/tests -p test_task_sync.py -v
+      - name: Course, exam and QR parser regressions
+        run: python sync/tests/test_parsers.py
+      - name: Frontend sync regressions
+        run: node sync/tests/test_task_sync.cjs

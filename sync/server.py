@@ -311,9 +311,15 @@ class Handler(BaseHTTPRequestHandler):
                 value = body.get('workspace')
                 if not isinstance(value,dict) or not isinstance(value.get('settings'),dict) or any(not isinstance(value.get(k),list) for k in ('courses','ddl','notes')):
                     return self._err(400,'工作台数据格式不完整，已保留现有数据')
+                if (any(not isinstance(x,dict) or not isinstance(x.get('id'),str) for x in value['ddl'])
+                    or not isinstance(value.get('deletedTasks',[]),list)
+                    or any(not isinstance(x,dict) for x in value.get('deletedTasks',[]))):
+                    return self._err(400,'任务数据格式不正确，已保留现有数据')
                 try:
-                    store.write_json(store.DATA/'workspace.json',value)
-                    return self._json({'ok':True})
+                    value = store.save_workspace(value)
+                    return self._json({'ok':True,'workspace':value})
+                except (ValueError,TypeError):
+                    return self._err(400,'任务数据格式不正确，已保留现有数据')
                 except OSError as error:
                     return self._err(507,'数据保存失败，请检查目录权限和磁盘空间：'+str(error)[:100])
             if path == '/api/storage/open':
@@ -393,6 +399,14 @@ class Handler(BaseHTTPRequestHandler):
             if BROWSER.get("state") != "installing":
                 threading.Thread(target=_install_browser_thread, daemon=True).start()
             return self._json({"ok": True, "browser": BROWSER})
+
+        m = re.match(r"^/api/login/(tju|zhs)/cancel$", path)
+        if m:
+            if not self._guard(q):
+                return
+            import browser_login
+            browser_login.cancel(m.group(1))
+            return self._json({'ok':True})
 
         m = re.match(r"^/api/login/(tju|zhs)/start$", path)
         if m:

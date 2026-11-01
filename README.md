@@ -1,6 +1,8 @@
 # 课程工作台
 
-面向 Windows 的本地课程工作台，连接天津大学教务和智慧树，集中查看课表、待办、考试、作业附件与平台返回的作业答案。当前版本为 **1.3.0**。
+面向 Windows 的本地课程工作台，连接天津大学教务和智慧树，集中查看课表、待办、考试、作业附件与平台返回的作业答案。当前程序版本为 **1.3.1**，首个 EXE 发行标签为 **release-v1.0**。
+
+Windows 用户从 [release-v1.0 下载页面](https://github.com/BACKt2049/course-workbench/releases/tag/release-v1.0) 获取 `课程工作台-答案中心.exe`，直接运行并选择数据目录，无需执行下面的源码安装步骤。修复范围与验收记录见 [发行说明](docs/releases/release-v1.0.md)。
 
 项目的核心目标是减少跨平台寻找信息、整理要求、搬运附件和维护任务的时间。技术原理、使用条件、增量同步与任务状态设计、文件夹与 Agent 协作、稳定性及 GitHub Releases 更新路线见 [开发文档与演进方案](docs/development-plan.md)。文档区分当前实现与后续规划；SQLite 任务服务、Codex 工作区入口、MCP 和自动更新尚未实现。
 
@@ -8,6 +10,7 @@
 
 - 天津大学使用“融合门户”App 扫码，智慧树使用“知到”App 扫码。
 - 同步课表、考试、作业要求、课程进度和附件；失败时保留已有数据。
+- 按平台身份增量合并任务，保留已完成记录；本地工作状态与平台提交状态分别显示。
 - DDL 页提供统一附件目录、绝对路径复制、上传、搜索、重命名、替换和删除。
 - 答案中心支持筛选、刷新、复制与 TXT、Markdown、JSON 导出；缺失答案会标明状态。
 - 首次桌面启动选择数据文件夹，已有数据可保留或复制迁移。
@@ -56,15 +59,18 @@ python sync/cli.py serve --no-lan
 
 ## 测试
 
-以下 60 项测试不需要真实账号：
+以下 79 项 Python 单元测试、36 项解析检查与 8 组前端回归不需要真实账号（前端检查使用 Node.js）：
 
 ```powershell
 python -m unittest discover -s sync/tests -p test_answers.py -v
 python -m unittest discover -s sync/tests -p test_attachments.py -v
 python -m unittest discover -s sync/tests -p test_reliability.py -v
+python -m unittest discover -s sync/tests -p test_task_sync.py -v
+python sync/tests/test_parsers.py
+node sync/tests/test_task_sync.cjs
 ```
 
-`test_parsers.py` 是历史假页面测试，目前仍有 4 项课表/考试样例失败，未计入上述通过的测试。`e2e_local.py` 是旧的手工联调脚本，会写测试数据，应使用独立的 `WB_DATA` 目录和对应测试服务。
+原有课表与考试解析失败项已修复，并纳入 CI。`e2e_local.py` 是旧的手工联调脚本，会写测试数据，应使用独立的 `WB_DATA` 目录和对应测试服务。
 
 ## 构建 Windows 单文件 EXE
 
@@ -88,6 +94,7 @@ python sync/build_release.py
 ## 代码结构
 
 - `sync/server.py`：本地接口、连接恢复、健康检查与备份入口。
+- `sync/task_sync.py`：稳定任务身份、双状态与兼容旧数据的增量合并规则。
 - `sync/runtime_config.py`、`durable_json.py`、`data_safety.py`、`runtime_assets.py`：目录选择、数据恢复、备份和运行组件恢复。
 - `sync/browser_login.py`、`cas_qr.py`、`zhs_qr.py`、`zhs_client.py`：登录与平台会话。
 - `sync/answers`：答案获取、解析、缓存和导出。
