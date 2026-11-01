@@ -2,7 +2,7 @@
 
 面向 Windows 的本地课程工作台，连接天津大学教务和智慧树，集中查看课表、待办、考试、作业附件与平台返回的作业答案。当前程序版本为 **1.3.1**，首个 EXE 发行标签为 **release-v1.0**。
 
-Windows 用户从 [release-v1.0 下载页面](https://github.com/BACKt2049/course-workbench/releases/tag/release-v1.0) 获取 `课程工作台-答案中心.exe`，直接运行并选择数据目录，无需执行下面的源码安装步骤。修复范围与验收记录见 [发行说明](docs/releases/release-v1.0.md)。
+Windows 用户从 [release-v1.0 下载页面](https://github.com/BACKt2049/course-workbench/releases/tag/release-v1.0) 获取 `CourseWorkbench-Windows-x64.exe`，直接运行并选择数据目录，无需执行下面的源码安装步骤。修复范围与验收记录见 [发行说明](docs/releases/release-v1.0.md)。
 
 项目的核心目标是减少跨平台寻找信息、整理要求、搬运附件和维护任务的时间。技术原理、使用条件、增量同步与任务状态设计、文件夹与 Agent 协作、稳定性及 GitHub Releases 更新路线见 [开发文档与演进方案](docs/development-plan.md)。文档区分当前实现与后续规划；SQLite 任务服务、Codex 工作区入口、MCP 和自动更新尚未实现。
 

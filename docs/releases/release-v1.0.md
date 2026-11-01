@@ -4,7 +4,7 @@
 
 ## 下载与运行
 
-从 [发行页面](https://github.com/BACKt2049/course-workbench/releases/tag/release-v1.0) 下载 `课程工作台-答案中心.exe`。直接双击运行，首次选择数据保存目录；已有目录仍按保存的配置读取。
+从 [发行页面](https://github.com/BACKt2049/course-workbench/releases/tag/release-v1.0) 下载 `CourseWorkbench-Windows-x64.exe`。直接双击运行，首次选择数据保存目录；已有目录仍按保存的配置读取。下载附件使用 ASCII 名称，避免发行平台清理中文文件名；本地构建产物名为 `课程工作台-答案中心.exe`。
 
 EXE 内置 Python、Playwright 驱动和完整 Chromium，无需另外安装 Python、Node、Chrome 或浏览器内核。首次运行会解压内置组件；后续复用稳定目录，缺失或损坏时从 EXE 恢复。登录与同步需要网络。
 
